@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Particle Follower Game with Black Square</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+        canvas {
+            display: block;
+        }
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">Move your mouse to guide the particles! Hold Up Arrow to zoom in, Down Arrow to zoom out.</div>
+    <canvas id="canvas"></canvas>
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size to window size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Particle system
+        const numParticles = 100000; // Adjust for performance
+        const particles = [];
+
+        // Mouse position
+        let mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+
+        // Zoom settings
+        let zoomLevel = 1;
+        const zoomSpeed = 0.02; // Per-frame zooming
+        const minZoom = 0.05;
+        const maxZoom = 30;
+
+        // Key state tracking
+        const keys = {
+            ArrowUp: false,
+            ArrowDown: false
+        };
+
+        // Color palette for scrolling effect
+        const palette = [
+            { r: 255, g: 0, b: 0 },    // Red
+            { r: 255, g: 165, b: 0 },  // Orange
+            { r: 255, g: 255, b: 0 },  // Yellow
+            { r: 0, g: 255, b: 0 },    // Green
+            { r: 0, g: 255, b: 255 },  // Cyan
+            { r: 0, g: 0, b: 255 },    // Blue
+            { r: 255, g: 0, b: 255 }   // Magenta
+        ];
+        let paletteTime = 0;
+        const paletteSpeed = 0.01;
+
+        // Black square settings
+        const squareSize = 100; // Size of the square in pixels
+        const square = {
+            x: canvas.width / (2 * zoomLevel),
+            y: canvas.height / (2 * zoomLevel),
+            size: squareSize
+        };
+
+        // Particle class
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.color = { r: 255, g: 255, b: 255 };
+            }
+
+            update() {
+                // Calculate distance to mouse (adjusted for zoom)
+                const adjustedMouseX = mouse.x / zoomLevel;
+                const adjustedMouseY = mouse.y / zoomLevel;
+                const dx = adjustedMouseX - this.x;
+                const dy = adjustedMouseY - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const maxDistance = 200; // Attraction range
+
+                // Apply stronger force towards mouse
+                if (distance < maxDistance && distance > 0) {
+                    const force = (1 - distance / maxDistance) * 5;
+                    this.vx += (dx / distance) * force;
+                    this.vy += (dy / distance) * force;
+                }
+
+                // Update position
+                let newX = this.x + this.vx;
+                let newY = this.y + this.vy;
+
+                // Check for collision with black square boundaries
+                const squareLeft = square.x - square.size / 2;
+                const squareRight = square.x + square.size / 2;
+                const squareTop = square.y - square.size / 2;
+                const squareBottom = square.y + square.size / 2;
+
+                // Prevent particle from entering the square
+                if (
+                    newX >= squareLeft &&
+                    newX <= squareRight &&
+                    newY >= squareTop &&
+                    newY <= squareBottom
+                ) {
+                    // Determine which boundary is closest and push particle back
+                    const distLeft = Math.abs(newX - squareLeft);
+                    const distRight = Math.abs(newX - squareRight);
+                    const distTop = Math.abs(newY - squareTop);
+                    const distBottom = Math.abs(newY - squareBottom);
+                    const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+
+                    if (minDist === distLeft) {
+                        newX = squareLeft;
+                        this.vx = -Math.abs(this.vx) * 0.5; // Reflect velocity
+                    } else if (minDist === distRight) {
+                        newX = squareRight;
+                        this.vx = Math.abs(this.vx) * 0.5;
+                    } else if (minDist === distTop) {
+                        newY = squareTop;
+                        this.vy = -Math.abs(this.vy) * 0.5;
+                    } else if (minDist === distBottom) {
+                        newY = squareBottom;
+                        this.vy = Math.abs(this.vy) * 0.5;
+                    }
+                }
+
+                // Update position after collision check
+                this.x = newX;
+                this.y = newY;
+
+                // Reduced damping for more responsiveness
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+
+                // Wrap around canvas edges (adjusted for zoom)
+                if (this.x < 0) this.x += canvas.width / zoomLevel;
+                if (this.x > canvas.width / zoomLevel) this.x -= canvas.width / zoomLevel;
+                if (this.y < 0) this.y += canvas.height / zoomLevel;
+                if (this.y > canvas.height / zoomLevel) this.y -= canvas.height / zoomLevel;
+
+                // Update color based on palette
+                this.color = getPaletteColor();
+            }
+
+            draw() {
+                ctx.fillStyle = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
+                ctx.fillRect(this.x, this.y, 1, 1); // Removed 1 / zoomLevel to scale with zoom
+            }
+        }
+
+        // Initialize particles
+        for (let i = 0; i < numParticles; i++) {
+            particles.push(new Particle());
+        }
+
+        // Get interpolated color from palette
+        function getPaletteColor() {
+            paletteTime = (paletteTime % palette.length + palette.length) % palette.length;
+            const t = paletteTime % 1;
+            const i = Math.floor(paletteTime);
+            const color1 = palette[i % palette.length];
+            const color2 = palette[(i + 1) % palette.length];
+            return {
+                r: Math.round(color1.r + (color2.r - color1.r) * t),
+                g: Math.round(color1.g + (color2.g - color1.g) * t),
+                b: Math.round(color1.b + (color2.b - color1.b) * t)
+            };
+        }
+
+        // Draw the black square
+        function drawSquare() {
+            ctx.save();
+            ctx.fillStyle = 'black';
+            ctx.fillRect(
+                square.x - square.size / 2,
+                square.y - square.size / 2,
+                square.size,
+                square.size
+            );
+            ctx.restore();
+        }
+
+        // Mouse movement handler
+        canvas.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        // Keydown and keyup handlers for smooth zooming
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                keys[e.key] = true;
+                e.preventDefault(); // Prevent scrolling
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                keys[e.key] = false;
+            }
+        });
+
+        // Animation loop
+        let lastTime = performance.now();
+        function animate(currentTime) {
+            const deltaTime = (currentTime - lastTime) / 16.67; // Normalize to ~60fps
+            lastTime = currentTime;
+
+            // Update zoom level based on key states
+            if (keys.ArrowUp) {
+                zoomLevel = Math.min(zoomLevel + zoomSpeed * deltaTime, maxZoom);
+            }
+            if (keys.ArrowDown) {
+                zoomLevel = Math.max(zoomLevel - zoomSpeed * deltaTime, minZoom);
+            }
+
+            // Update square position to stay centered (adjusted for zoom)
+            square.x = canvas.width / (2 * zoomLevel);
+            square.y = canvas.height / (2 * zoomLevel);
+
+            // Clear canvas with fade effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply zoom transformation
+            ctx.save();
+            ctx.scale(zoomLevel, zoomLevel);
+
+            paletteTime += paletteSpeed * deltaTime;
+            paletteTime = (paletteTime % palette.length + palette.length) % palette.length;
+
+            for (const particle of particles) {
+                particle.update();
+                particle.draw();
+            }
+
+            // Draw the black square
+            drawSquare();
+
+            ctx.restore();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Update square position on resize
+            square.x = canvas.width / (2 * zoomLevel);
+            square.y = canvas.height / (2 * zoomLevel);
+        });
+
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
